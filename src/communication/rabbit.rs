@@ -20,7 +20,7 @@ pub async fn setup_publish_channel(conn: &Connection) -> Result<Channel> {
     // declare/create new main queue
     channel
         .queue_declare(
-            "voice_server_consume",
+            "integration_server_consume",
             QueueDeclareOptions::default(),
             FieldTable::default(),
         )
@@ -33,7 +33,7 @@ pub async fn setup_consume_task(conn: &Connection) -> Result<()> {
     // declare/create new main queue
     channel
         .queue_declare(
-            "voice_server_publish",
+            "integration_server_publish",
             QueueDeclareOptions::default(),
             FieldTable::default(),
         )
