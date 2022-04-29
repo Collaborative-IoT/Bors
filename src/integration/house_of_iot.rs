@@ -10,12 +10,10 @@
 //!
 //! You can use this example together with the `server` example.
 
-use std::{
-    env,
-    sync::{Arc, RwLock},
-};
-
+use crate::{communication::types::HouseOfIoTCredentials, state::state_types::MainState};
 use futures_util::{future, pin_mut, stream::SplitStream, StreamExt};
+use std::{env, sync::Arc};
+use tokio::sync::RwLock;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
@@ -23,8 +21,7 @@ use tokio::{
 use tokio_tungstenite::{
     connect_async, tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream,
 };
-
-use crate::{communication::types::HouseOfIoTCredentials, state::state_types::MainState};
+use uuid::Uuid;
 
 async fn connect_and_begin_listening(
     credentials: HouseOfIoTCredentials,
@@ -40,6 +37,11 @@ async fn connect_and_begin_listening(
         let stdin_to_ws = stdin_rx.map(Ok).forward(write);
         let is_authed = authenticate(&mut stdin_tx, &credentials, &mut read).await;
         if is_authed {
+            let mut write_state = server_state.write().await;
+            write_state
+                .server_connections
+                .insert(Uuid::new_v4().to_string(), stdin_tx);
+            //TODO add
             let ws_to_stdout = { read.for_each(|message| async {}) };
             pin_mut!(stdin_to_ws, ws_to_stdout);
             future::select(stdin_to_ws, ws_to_stdout).await;
