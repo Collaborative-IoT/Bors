@@ -10,40 +10,61 @@
 //!
 //! You can use this example together with the `server` example.
 
-use std::env;
+use std::{
+    env,
+    sync::{Arc, RwLock},
+};
 
-use futures_util::{future, pin_mut, StreamExt};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use futures_util::{future, pin_mut, stream::SplitStream, StreamExt};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+};
+use tokio_tungstenite::{
+    connect_async, tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream,
+};
 
-async fn connect_and_begin_listening(connect_addr: &str) {
-    let url = url::Url::parse(connect_addr).unwrap();
+use crate::{communication::types::HouseOfIoTCredentials, state::state_types::MainState};
 
-    let (stdin_tx, stdin_rx) = futures_channel::mpsc::unbounded();
+async fn connect_and_begin_listening(
+    credentials: HouseOfIoTCredentials,
+    server_state: &Arc<RwLock<MainState>>,
+) {
+    let url_res = url::Url::parse(&credentials.connection_str);
+    if let Ok(url) = url_res {
+        let (mut stdin_tx, stdin_rx) = futures_channel::mpsc::unbounded();
 
-    let (ws_stream, _) = connect_async(url).await.expect("Failed to connect");
-    let (write, read) = ws_stream.split();
+        let (ws_stream, _) = connect_async(url).await.expect("Failed to connect");
+        let (write, mut read) = ws_stream.split();
 
-    let stdin_to_ws = stdin_rx.map(Ok).forward(write);
-    let ws_to_stdout = { read.for_each(|message| async {}) };
-
-    pin_mut!(stdin_to_ws, ws_to_stdout);
-    future::select(stdin_to_ws, ws_to_stdout).await;
-}
-
-// Our helper method which will read data from stdin and send it along the
-// sender provided.
-async fn read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
-    let mut stdin = tokio::io::stdin();
-    loop {
-        let mut buf = vec![0; 1024];
-        let n = match stdin.read(&mut buf).await {
-            Err(_) | Ok(0) => break,
-            Ok(n) => n,
-        };
-        buf.truncate(n);
-        tx.unbounded_send(Message::binary(buf)).unwrap();
+        let stdin_to_ws = stdin_rx.map(Ok).forward(write);
+        let is_authed = authenticate(&mut stdin_tx, &credentials, &mut read).await;
+        if is_authed {
+            let ws_to_stdout = { read.for_each(|message| async {}) };
+            pin_mut!(stdin_to_ws, ws_to_stdout);
+            future::select(stdin_to_ws, ws_to_stdout).await;
+        } else {
+            //push issue message to rabbitmq
+        }
     }
 }
 
-async fn authenticate() {}
+async fn authenticate(
+    tx: &mut futures_channel::mpsc::UnboundedSender<Message>,
+    credentials: &HouseOfIoTCredentials,
+    read: &mut SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+) -> bool {
+    let password_send = tx.unbounded_send(Message::Text(credentials.password.clone()));
+    let name_and_type_send = tx.unbounded_send(Message::Text(credentials.name_and_type.clone()));
+    let outside_name_send = tx.unbounded_send(Message::Text(credentials.outside_name.clone()));
+    if password_send.is_ok() && name_and_type_send.is_ok() && outside_name_send.is_ok() {
+        if let Some(msg) = read.next().await {
+            if let Ok(msg) = msg {
+                if msg.is_text() && msg.to_string() == "success" {
+                    return true;
+                }
+            }
+        };
+    }
+    false
+}
