@@ -11,11 +11,14 @@
 //! You can use this example together with the `server` example.
 
 use crate::communication::rabbit;
-use crate::communication::types::AuthResponse;
+use crate::communication::types::{
+    AuthResponse, GeneralMessage, HOIBasicPassiveSingle, HOIBasicResponse,
+};
 use crate::{communication::types::HouseOfIoTCredentials, state::state_types::MainState};
 use futures::lock::Mutex;
 use futures_util::{future, pin_mut, stream::SplitStream, StreamExt};
 use lapin::Channel;
+use serde_json::Value;
 use std::{env, sync::Arc};
 use tokio::sync::RwLock;
 use tokio::{
@@ -125,5 +128,42 @@ async fn route_message(
     publish_channel: Arc<Mutex<lapin::Channel>>,
     server_id: String,
 ) {
-    
+    let publish_channel_mut = publish_channel.lock().await;
+    if msg == "success" || msg == "issue" {
+        let response = GeneralMessage {
+            category: "action_response".to_owned(),
+            data: msg,
+            server_id,
+        };
+
+        rabbit::publish_message(
+            &publish_channel_mut,
+            serde_json::to_string(&response).unwrap(),
+        )
+        .await
+        .unwrap_or_default();
+        return;
+    }
+    if let Ok(basic_response_from_server) = serde_json::from_str(&msg) {
+        let actual_response: Value = basic_response_from_server;
+        // If this is a passive data response
+        if actual_response["bots"] != Value::Null {
+            // we convert here to confirm we are getting the correct data from the iot server
+            // before passing it along to the main general server
+            if let Ok(data) = serde_json::from_value(actual_response) {
+                let data: Vec<HOIBasicPassiveSingle> = data;
+                let response = GeneralMessage {
+                    category: "passive_data".to_owned(),
+                    data: serde_json::to_string(&data).unwrap(),
+                    server_id,
+                };
+                rabbit::publish_message(
+                    &publish_channel_mut,
+                    serde_json::to_string(&response).unwrap(),
+                )
+                .await
+                .unwrap_or_default();
+            }
+        }
+    }
 }
