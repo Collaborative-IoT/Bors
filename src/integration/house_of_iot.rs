@@ -41,7 +41,7 @@ async fn connect_and_begin_listening(
         let stdin_to_ws = stdin_rx.map(Ok).forward(write);
         let is_authed = authenticate(&mut stdin_tx, &credentials, &mut read).await;
         let mut write_state = server_state.write().await;
-        let publish_channel = publish_channel.lock().await;
+        let publish_channel_mut = publish_channel.lock().await;
 
         // If authentication is successfull we should
         // relay that information directly to the message
@@ -59,17 +59,27 @@ async fn connect_and_begin_listening(
             send_auth_response(
                 credentials.outside_name,
                 true,
-                Some(new_server_id),
-                &publish_channel,
+                Some(new_server_id.clone()),
+                &publish_channel_mut,
             )
             .await;
 
             //Spawn our new basic tasks
-            let ws_to_stdout = { read.for_each(|message| async {}) };
+            let ws_to_stdout = {
+                read.for_each(|message| async {
+                    if let Ok(msg) = message {
+                        let str_msg = msg.to_string();
+                        route_message(str_msg, publish_channel.clone(), new_server_id.clone())
+                            .await;
+                    }
+                })
+            };
+            drop(write_state);
+            drop(publish_channel_mut);
             pin_mut!(stdin_to_ws, ws_to_stdout);
             future::select(stdin_to_ws, ws_to_stdout).await;
         } else {
-            send_auth_response(credentials.outside_name, false, None, &publish_channel).await;
+            send_auth_response(credentials.outside_name, false, None, &publish_channel_mut).await;
         }
     }
 }
@@ -108,4 +118,12 @@ async fn send_auth_response(
     rabbit::publish_message(channel, serde_json::to_string(&auth_response).unwrap())
         .await
         .unwrap_or_default();
+}
+
+async fn route_message(
+    msg: String,
+    publish_channel: Arc<Mutex<lapin::Channel>>,
+    server_id: String,
+) {
+    
 }
