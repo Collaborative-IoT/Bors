@@ -19,8 +19,10 @@ use futures::lock::Mutex;
 use futures_util::{future, pin_mut, stream::SplitStream, StreamExt};
 use lapin::Channel;
 use serde_json::Value;
+use std::time::Duration;
 use std::{env, sync::Arc};
 use tokio::sync::RwLock;
+use tokio::time::sleep;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
@@ -67,8 +69,10 @@ async fn connect_and_begin_listening(
             )
             .await;
 
-            //Spawn our new basic tasks
-            let ws_to_stdout = {
+            //Spawn our new basic task to route all
+            //messages from the IoT server to relay abstracted
+            //information to the main server
+            let route_all_incoming_messages = {
                 read.for_each(|message| async {
                     if let Ok(msg) = message {
                         let str_msg = msg.to_string();
@@ -79,10 +83,27 @@ async fn connect_and_begin_listening(
             };
             drop(write_state);
             drop(publish_channel_mut);
-            pin_mut!(stdin_to_ws, ws_to_stdout);
-            future::select(stdin_to_ws, ws_to_stdout).await;
+            tokio::task::spawn(request_passive_data_on_interval(
+                server_state.clone(),
+                new_server_id.clone(),
+            ));
+            tokio::task::spawn(stdin_to_ws);
+            route_all_incoming_messages.await;
         } else {
             send_auth_response(credentials.outside_name, false, None, &publish_channel_mut).await;
+        }
+    }
+}
+
+async fn request_passive_data_on_interval(server_state: Arc<RwLock<MainState>>, server_id: String) {
+    loop {
+        sleep(Duration::from_secs(5)).await;
+        let mut write_state = server_state.write().await;
+        if let Some(tx) = write_state.server_connections.get_mut(&server_id) {
+            let send_res = tx.unbounded_send(Message::Text("passive_data".to_owned()));
+            if send_res.is_err() {
+                println!("issue sending for passive data");
+            }
         }
     }
 }
