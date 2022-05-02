@@ -3,6 +3,7 @@ pub mod integration {
 }
 pub mod communication {
     pub mod rabbit;
+    pub mod router;
     pub mod types;
 }
 

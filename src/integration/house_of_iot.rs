@@ -12,15 +12,15 @@
 
 use crate::communication::rabbit;
 use crate::communication::types::{
-    AuthResponse, GeneralMessage, HOIBasicPassiveSingle, HOIBasicResponse,
+    AuthResponse, GeneralMessage, HOIActionData, HOIBasicPassiveSingle,
 };
 use crate::{communication::types::HouseOfIoTCredentials, state::state_types::MainState};
 use futures::lock::Mutex;
-use futures_util::{future, pin_mut, stream::SplitStream, StreamExt};
+use futures_util::{stream::SplitStream, StreamExt};
 use lapin::Channel;
 use serde_json::Value;
+use std::sync::Arc;
 use std::time::Duration;
-use std::{env, sync::Arc};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 use tokio::{
@@ -32,7 +32,7 @@ use tokio_tungstenite::{
 };
 use uuid::Uuid;
 
-async fn connect_and_begin_listening(
+pub async fn connect_and_begin_listening(
     credentials: HouseOfIoTCredentials,
     server_state: &Arc<RwLock<MainState>>,
     publish_channel: &Arc<Mutex<lapin::Channel>>,
@@ -57,6 +57,9 @@ async fn connect_and_begin_listening(
             write_state
                 .server_connections
                 .insert(new_server_id.clone(), stdin_tx);
+            write_state
+                .server_credentials
+                .insert(new_server_id.clone(), credentials.clone());
 
             //let the consumer know, that this request
             //was successful and we are awaiting commands
@@ -76,8 +79,13 @@ async fn connect_and_begin_listening(
                 read.for_each(|message| async {
                     if let Ok(msg) = message {
                         let str_msg = msg.to_string();
-                        route_message(str_msg, publish_channel.clone(), new_server_id.clone())
-                            .await;
+                        route_message(
+                            str_msg,
+                            publish_channel.clone(),
+                            server_state.clone(),
+                            new_server_id.clone(),
+                        )
+                        .await;
                     }
                 })
             };
@@ -92,6 +100,23 @@ async fn connect_and_begin_listening(
         } else {
             send_auth_response(credentials.outside_name, false, None, &publish_channel_mut).await;
         }
+    }
+}
+
+pub async fn execute_action(server_state: &Arc<RwLock<MainState>>, action_data: HOIActionData) {
+    let mut write_state = server_state.write().await;
+
+    if let Some(tx) = write_state
+        .server_connections
+        .get_mut(&action_data.server_id)
+    {
+        // Normal HOI bot control protocol
+        tx.unbounded_send(Message::text("bot_control".to_owned()))
+            .unwrap_or_default();
+        tx.unbounded_send(Message::text(action_data.action))
+            .unwrap_or_default();
+        tx.unbounded_send(Message::text(action_data.bot_name))
+            .unwrap_or_default();
     }
 }
 
@@ -147,26 +172,35 @@ async fn send_auth_response(
 async fn route_message(
     msg: String,
     publish_channel: Arc<Mutex<lapin::Channel>>,
+    server_state: Arc<RwLock<MainState>>,
     server_id: String,
 ) {
     let publish_channel_mut = publish_channel.lock().await;
-    if msg == "success" || msg == "issue" {
-        let response = GeneralMessage {
-            category: "action_response".to_owned(),
-            data: msg,
-            server_id,
-        };
 
-        rabbit::publish_message(
-            &publish_channel_mut,
-            serde_json::to_string(&response).unwrap(),
-        )
-        .await
-        .unwrap_or_default();
-        return;
-    }
-    if let Ok(basic_response_from_server) = serde_json::from_str(&msg) {
-        let actual_response: Value = basic_response_from_server;
+    if let Ok(response_from_server) = serde_json::from_str(&msg) {
+        let actual_response: Value = response_from_server;
+        // If an action that was requested requires admin authentication
+        // we should provide such authentication.
+        //
+        //There are technically 2 different authentications one for
+        //super admin and one for regular admin, but this integration
+        //is only for doing things that requires regular admin auth.
+        if actual_response["status"] != Value::Null
+            && actual_response["status"].to_string() == "needs-admin-auth"
+        {
+            let mut write_state = server_state.write().await;
+            let mut creds = None;
+            if let Some(cred) = write_state.server_credentials.get(&server_id) {
+                creds = Some(cred.clone());
+            }
+            if let Some(tx) = write_state.server_connections.get_mut(&server_id) {
+                if let Some(creds) = creds {
+                    tx.unbounded_send(Message::Text(creds.admin_password.clone()))
+                        .unwrap_or_default();
+                }
+            }
+            return;
+        }
         // If this is a passive data response
         if actual_response["bots"] != Value::Null {
             // we convert here to confirm we are getting the correct data from the iot server
@@ -185,6 +219,26 @@ async fn route_message(
                 .await
                 .unwrap_or_default();
             }
+            return;
+        }
+        // If this is a response for an action execution
+        if actual_response["bot_name"] != Value::Null
+            && actual_response["action"] != Value::Null
+            && actual_response["status"] != Value::Null
+        {
+            let response = GeneralMessage {
+                category: "action_response".to_owned(),
+                data: msg,
+                server_id,
+            };
+
+            rabbit::publish_message(
+                &publish_channel_mut,
+                serde_json::to_string(&response).unwrap(),
+            )
+            .await
+            .unwrap_or_default();
+            return;
         }
     }
 }

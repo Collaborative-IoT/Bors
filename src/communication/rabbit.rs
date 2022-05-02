@@ -1,3 +1,4 @@
+use futures::lock::Mutex;
 use futures_util::stream::StreamExt;
 use lapin::{
     message::Delivery, options::*, publisher_confirm::Confirmation, types::FieldTable,
@@ -6,6 +7,10 @@ use lapin::{
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_amqp::*;
+
+use crate::state::state_types::MainState;
+
+use super::router::route_rabbit_message;
 
 pub async fn setup_rabbit_connection() -> Result<Connection> {
     let addr =
@@ -20,7 +25,7 @@ pub async fn setup_publish_channel(conn: &Connection) -> Result<Channel> {
     // declare/create new main queue
     channel
         .queue_declare(
-            "integration_server_consume",
+            "main_server_consume",
             QueueDeclareOptions::default(),
             FieldTable::default(),
         )
@@ -28,12 +33,16 @@ pub async fn setup_publish_channel(conn: &Connection) -> Result<Channel> {
     return Ok(channel);
 }
 
-pub async fn setup_consume_task(conn: &Connection) -> Result<()> {
+pub async fn setup_consume_task(
+    conn: &Connection,
+    server_state: Arc<RwLock<MainState>>,
+    publish_channel: Arc<Mutex<lapin::Channel>>,
+) -> Result<()> {
     let channel = conn.create_channel().await?;
     // declare/create new main queue
     channel
         .queue_declare(
-            "integration_server_publish",
+            "main_server_publish",
             QueueDeclareOptions::default(),
             FieldTable::default(),
         )
@@ -41,7 +50,7 @@ pub async fn setup_consume_task(conn: &Connection) -> Result<()> {
 
     let mut consumer = channel
         .basic_consume(
-            "integration_server_publish",
+            "main_server_publish",
             "my_consumer",
             BasicConsumeOptions::default(),
             FieldTable::default(),
@@ -50,10 +59,17 @@ pub async fn setup_consume_task(conn: &Connection) -> Result<()> {
 
     // listen for messages forever and handle messages
     tokio::task::spawn(async move {
+        let server_state = server_state.clone();
+        let publish_channel = publish_channel.clone();
         while let Some(delivery) = consumer.next().await {
             let (_, delivery) = delivery.expect("error in consumer");
             delivery.ack(BasicAckOptions::default()).await.expect("ack");
             let message = parse_message(delivery);
+            if message != "" {
+                if let Ok(msg) = serde_json::from_str(&message) {
+                    route_rabbit_message(msg, &server_state, &publish_channel).await;
+                }
+            }
         }
     });
     return Ok(());
@@ -64,7 +80,7 @@ pub async fn publish_message(publish_channel: &Channel, data: String) -> Result<
     let confirm = publish_channel
         .basic_publish(
             "",
-            "integration_server_consume",
+            "main_server_consume",
             BasicPublishOptions::default(),
             convert_string_to_vec_u8(data),
             BasicProperties::default(),
