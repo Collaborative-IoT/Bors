@@ -16,8 +16,10 @@ use crate::communication::types::{
 };
 use crate::{communication::types::HouseOfIoTCredentials, state::state_types::MainState};
 use futures::lock::Mutex;
+use futures_channel::mpsc::UnboundedSender;
 use futures_util::{stream::SplitStream, StreamExt};
 use lapin::Channel;
+use queues::*;
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
@@ -60,7 +62,12 @@ pub async fn connect_and_begin_listening(
             write_state
                 .server_credentials
                 .insert(new_server_id.clone(), credentials.clone());
-
+            write_state
+                .action_execution_queue
+                .insert(new_server_id.clone(), queue![]);
+            write_state
+                .action_in_progress
+                .insert(new_server_id.clone(), false);
             //let the consumer know, that this request
             //was successful and we are awaiting commands
             //for the newly added server
@@ -103,37 +110,70 @@ pub async fn connect_and_begin_listening(
     }
 }
 
-pub async fn execute_action(server_state: &Arc<RwLock<MainState>>, action_data: HOIActionData) {
+/// We need to queue up every action instead
+/// of executing it directly due to the s
+pub async fn queue_up_action_execution(
+    server_state: &Arc<RwLock<MainState>>,
+    action_data: HOIActionData,
+) {
     let mut write_state = server_state.write().await;
-
-    if let Some(tx) = write_state
-        .server_connections
+    if let Some(data) = write_state
+        .action_execution_queue
         .get_mut(&action_data.server_id)
     {
-        // Normal HOI bot control protocol
-        tx.unbounded_send(Message::text("bot_control".to_owned()))
-            .unwrap_or_default();
-        tx.unbounded_send(Message::text(action_data.action))
-            .unwrap_or_default();
-        tx.unbounded_send(Message::text(action_data.bot_name))
-            .unwrap_or_default();
+        // Note: We need to account for circular removal
+        // when we add an item to the queue, another item
+        // could be removed "in the case of a circular buffer"
+        data.add(action_data).unwrap_or_default();
     }
 }
 
-async fn request_passive_data_on_interval(server_state: Arc<RwLock<MainState>>, server_id: String) {
+pub async fn execute_actions_on_interval(server_state: Arc<RwLock<MainState>>, server_id: String) {
     loop {
-        sleep(Duration::from_secs(5)).await;
+        sleep(Duration::from_millis(200)).await;
         let mut write_state = server_state.write().await;
-        if let Some(tx) = write_state.server_connections.get_mut(&server_id) {
-            let send_res = tx.unbounded_send(Message::Text("passive_data".to_owned()));
-            if send_res.is_err() {
-                println!("issue sending for passive data");
+
+        if let Some(server_action_queue) = write_state.action_execution_queue.get_mut(&server_id) {
+            //get the most recent queued action and execute
+            let action_data_res = server_action_queue.remove();
+            if let Ok(action_data) = action_data_res {
+                drop(server_action_queue);
+                if let Some(tx) = write_state.server_connections.get_mut(&server_id) {
+                    execute_action(tx, action_data).await;
+                }
             }
         }
     }
 }
 
-async fn authenticate(
+pub async fn execute_action(tx: &mut UnboundedSender<Message>, action_data: HOIActionData) {
+    // Normal HOI bot control protocol
+    tx.unbounded_send(Message::text("bot_control".to_owned()))
+        .unwrap_or_default();
+    tx.unbounded_send(Message::text(action_data.action))
+        .unwrap_or_default();
+    tx.unbounded_send(Message::text(action_data.bot_name))
+        .unwrap_or_default();
+}
+
+async fn request_passive_data_on_interval(server_state: Arc<RwLock<MainState>>, server_id: String) {
+    loop {
+        sleep(Duration::from_secs(10)).await;
+        let mut write_state = server_state.write().await;
+        // Only request passive data if we are in passive data requesting mode
+
+        if let Some(tx) = write_state.server_connections.get_mut(&server_id) {
+            let send_res = tx.unbounded_send(Message::Text("passive_data".to_owned()));
+            if send_res.is_err() {
+                println!("issue sending for passive data");
+            }
+        } else {
+            return;
+        }
+    }
+}
+
+pub async fn authenticate(
     tx: &mut futures_channel::mpsc::UnboundedSender<Message>,
     credentials: &HouseOfIoTCredentials,
     read: &mut SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,

@@ -48,7 +48,7 @@ pub struct HOIBasicPassiveSingle {
     pub device_name: String,
     pub device_type: String,
 }
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct HOIActionData {
     pub server_id: String,
     pub bot_name: String,

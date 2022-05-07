@@ -27,7 +27,8 @@ pub async fn route_rabbit_message(
         }
         "action_hoi" => {
             if let Ok(action_data) = serde_json::from_str(&msg.data) {
-                integration::house_of_iot::execute_action(server_state, action_data).await;
+                integration::house_of_iot::queue_up_action_execution(server_state, action_data)
+                    .await;
             }
         }
         _ => {}

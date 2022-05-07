@@ -58,20 +58,16 @@ pub async fn setup_consume_task(
         .await?;
 
     // listen for messages forever and handle messages
-    tokio::task::spawn(async move {
-        let server_state = server_state.clone();
-        let publish_channel = publish_channel.clone();
-        while let Some(delivery) = consumer.next().await {
-            let (_, delivery) = delivery.expect("error in consumer");
-            delivery.ack(BasicAckOptions::default()).await.expect("ack");
-            let message = parse_message(delivery);
-            if message != "" {
-                if let Ok(msg) = serde_json::from_str(&message) {
-                    route_rabbit_message(msg, &server_state, &publish_channel).await;
-                }
+    while let Some(delivery) = consumer.next().await {
+        let (_, delivery) = delivery.expect("error in consumer");
+        delivery.ack(BasicAckOptions::default()).await.expect("ack");
+        let message = parse_message(delivery);
+        if message != "" {
+            if let Ok(msg) = serde_json::from_str(&message) {
+                route_rabbit_message(msg, &server_state, &publish_channel).await;
             }
         }
-    });
+    }
     return Ok(());
 }
 
