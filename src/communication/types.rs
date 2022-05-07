@@ -1,10 +1,4 @@
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
-
-pub struct AbilitySnapShot {
-    pub abilities: HashMap<String, String>,
-}
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct HouseOfIoTCredentials {
