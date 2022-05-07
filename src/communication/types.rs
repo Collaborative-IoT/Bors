@@ -9,11 +9,12 @@ pub struct HouseOfIoTCredentials {
     pub password: String,
     pub admin_password: String,
     pub outside_name: String,
+    pub room_id: i32,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct AuthResponse {
-    pub outside_name: String,
+    pub room_id: i32,
     pub passed_auth: bool,
     pub server_id: Option<String>,
 }

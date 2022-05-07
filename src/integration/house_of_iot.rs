@@ -75,7 +75,7 @@ pub async fn connect_and_begin_listening(
             //was successful and we are awaiting commands
             //for the newly added server
             send_auth_response(
-                credentials.outside_name,
+                credentials.room_id,
                 true,
                 Some(new_server_id.clone()),
                 &publish_channel_mut,
@@ -112,7 +112,7 @@ pub async fn connect_and_begin_listening(
             tokio::task::spawn(stdin_to_ws);
             route_all_incoming_messages.await;
         } else {
-            send_auth_response(credentials.outside_name, false, None, &publish_channel_mut).await;
+            send_auth_response(credentials.room_id, false, None, &publish_channel_mut).await;
         }
     }
 }
@@ -242,13 +242,13 @@ pub async fn authenticate(
 }
 
 async fn send_auth_response(
-    outside_name: String,
+    room_id: i32,
     passed: bool,
     server_id: Option<String>,
     channel: &Channel,
 ) {
     let auth_response = AuthResponse {
-        outside_name: outside_name,
+        room_id,
         passed_auth: passed,
         server_id: server_id,
     };
