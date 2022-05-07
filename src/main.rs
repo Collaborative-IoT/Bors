@@ -1,8 +1,7 @@
-use std::sync::Arc;
-
 use communication::rabbit;
 use futures::lock::Mutex;
 use state::state_types::MainState;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 pub mod integration {

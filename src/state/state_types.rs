@@ -14,7 +14,18 @@ pub struct MainState {
     pub server_connections: HashMap<String, UnboundedSender<tungstenite::protocol::Message>>,
     pub server_credentials: HashMap<String, HouseOfIoTCredentials>,
     pub action_execution_queue: HashMap<String, Queue<HOIActionData>>,
+    /// Keeping track of actions in progress to never
+    /// have two actions running at once which won't work
+    /// with some IoT servers especially HOI.
     pub action_in_progress: HashMap<String, bool>,
+    /// Keeping track of what passive data requests
+    /// are in progress, HOI can't have an action + passive
+    /// data in progress.
+    pub passive_in_progress: HashMap<String, bool>,
+    /// Keeping track of how many times we skipped over
+    /// passive data in order to do a mandatory force
+    /// request after every 7 skips
+    pub passive_data_skips: HashMap<String, u8>,
 }
 
 impl MainState {
@@ -24,6 +35,8 @@ impl MainState {
             server_credentials: HashMap::new(),
             action_execution_queue: HashMap::new(),
             action_in_progress: HashMap::new(),
+            passive_in_progress: HashMap::new(),
+            passive_data_skips: HashMap::new(),
         }
     }
 }

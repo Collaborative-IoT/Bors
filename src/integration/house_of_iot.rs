@@ -68,6 +68,9 @@ pub async fn connect_and_begin_listening(
             write_state
                 .action_in_progress
                 .insert(new_server_id.clone(), false);
+            write_state
+                .passive_in_progress
+                .insert(new_server_id.clone(), false);
             //let the consumer know, that this request
             //was successful and we are awaiting commands
             //for the newly added server
@@ -102,6 +105,10 @@ pub async fn connect_and_begin_listening(
                 server_state.clone(),
                 new_server_id.clone(),
             ));
+            tokio::task::spawn(execute_actions_on_interval(
+                server_state.clone(),
+                new_server_id.clone(),
+            ));
             tokio::task::spawn(stdin_to_ws);
             route_all_incoming_messages.await;
         } else {
@@ -132,7 +139,23 @@ pub async fn execute_actions_on_interval(server_state: Arc<RwLock<MainState>>, s
     loop {
         sleep(Duration::from_millis(200)).await;
         let mut write_state = server_state.write().await;
-
+        // Only request action if nothing is blocking us from requesting
+        // Things that could block us from requesting:
+        // 1. Being in the middle of a passive request
+        // 2. Being in the middle of an action request
+        if let Some(action_status) = write_state.action_in_progress.get_mut(&server_id) {
+            if *action_status == true {
+                continue;
+            }
+        }
+        if let Some(passive_status) = write_state.passive_in_progress.get_mut(&server_id) {
+            if *passive_status == true {
+                continue;
+            }
+        }
+        write_state
+            .action_in_progress
+            .insert(server_id.clone(), true);
         if let Some(server_action_queue) = write_state.action_execution_queue.get_mut(&server_id) {
             //get the most recent queued action and execute
             let action_data_res = server_action_queue.remove();
@@ -158,17 +181,42 @@ pub async fn execute_action(tx: &mut UnboundedSender<Message>, action_data: HOIA
 
 async fn request_passive_data_on_interval(server_state: Arc<RwLock<MainState>>, server_id: String) {
     loop {
-        sleep(Duration::from_secs(10)).await;
+        sleep(Duration::from_secs(1)).await;
         let mut write_state = server_state.write().await;
-        // Only request passive data if we are in passive data requesting mode
+
+        // Only request passive data if nothing is blocking us from requesting
+        // Things that could block us from requesting:
+        // 1. Being in the middle of a passive request
+        // 2. Being in the middle of an action request
+        if let Some(action_status) = write_state.action_in_progress.get_mut(&server_id) {
+            if *action_status == true {
+                if let Some(skips) = write_state.passive_data_skips.get_mut(&server_id) {
+                    *skips += 1;
+                }
+                continue;
+            }
+        }
+        if let Some(passive_status) = write_state.passive_in_progress.get_mut(&server_id) {
+            if *passive_status == true {
+                continue;
+            }
+        }
 
         if let Some(tx) = write_state.server_connections.get_mut(&server_id) {
             let send_res = tx.unbounded_send(Message::Text("passive_data".to_owned()));
+            //set the in progress flag
+            write_state
+                .passive_in_progress
+                .insert(server_id.clone(), true);
             if send_res.is_err() {
                 println!("issue sending for passive data");
             }
         } else {
             return;
+        }
+
+        if let Some(skips) = write_state.passive_data_skips.get_mut(&server_id) {
+            *skips = 0;
         }
     }
 }
@@ -219,6 +267,7 @@ async fn route_message(
 
     if let Ok(response_from_server) = serde_json::from_str(&msg) {
         let actual_response: Value = response_from_server;
+        let mut write_state = server_state.write().await;
         // If an action that was requested requires admin authentication
         // we should provide such authentication.
         //
@@ -228,7 +277,6 @@ async fn route_message(
         if actual_response["status"] != Value::Null
             && actual_response["status"].to_string() == "needs-admin-auth"
         {
-            let mut write_state = server_state.write().await;
             let mut creds = None;
             if let Some(cred) = write_state.server_credentials.get(&server_id) {
                 creds = Some(cred.clone());
@@ -280,5 +328,12 @@ async fn route_message(
             .unwrap_or_default();
             return;
         }
+
+        // These must be false since neither can be true at the same time
+        // and after every response then each passive data/action cycle is over
+        write_state
+            .action_in_progress
+            .insert(server_id.clone(), false);
+        write_state.passive_in_progress.insert(server_id, false);
     }
 }
