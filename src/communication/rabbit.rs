@@ -25,7 +25,7 @@ pub async fn setup_publish_channel(conn: &Connection) -> Result<Channel> {
     // declare/create new main queue
     channel
         .queue_declare(
-            "main_server_consume",
+            "main_server_publish",
             QueueDeclareOptions::default(),
             FieldTable::default(),
         )
@@ -42,7 +42,7 @@ pub async fn setup_consume_task(
     // declare/create new main queue
     channel
         .queue_declare(
-            "main_server_publish",
+            "main_server_consume",
             QueueDeclareOptions::default(),
             FieldTable::default(),
         )
@@ -50,7 +50,7 @@ pub async fn setup_consume_task(
 
     let mut consumer = channel
         .basic_consume(
-            "main_server_publish",
+            "main_server_consume",
             "my_consumer",
             BasicConsumeOptions::default(),
             FieldTable::default(),
@@ -62,6 +62,7 @@ pub async fn setup_consume_task(
         let (_, delivery) = delivery.expect("error in consumer");
         delivery.ack(BasicAckOptions::default()).await.expect("ack");
         let message = parse_message(delivery);
+        println!("msg:{}", message);
         if message != "" {
             if let Ok(msg) = serde_json::from_str(&message) {
                 route_rabbit_message(msg, &server_state, &publish_channel).await;
@@ -76,7 +77,7 @@ pub async fn publish_message(publish_channel: &Channel, data: String) -> Result<
     let confirm = publish_channel
         .basic_publish(
             "",
-            "main_server_consume",
+            "main_server_publish",
             BasicPublishOptions::default(),
             convert_string_to_vec_u8(data),
             BasicProperties::default(),

@@ -40,20 +40,22 @@ pub async fn connect_and_begin_listening(
     publish_channel: &Arc<Mutex<lapin::Channel>>,
 ) {
     let url_res = url::Url::parse(&credentials.connection_str);
+    println!("Connecting...");
     if let Ok(url) = url_res {
         let (mut stdin_tx, stdin_rx) = futures_channel::mpsc::unbounded();
 
         let (ws_stream, _) = connect_async(url).await.expect("Failed to connect");
         let (write, mut read) = ws_stream.split();
         let stdin_to_ws = stdin_rx.map(Ok).forward(write);
+        tokio::task::spawn(stdin_to_ws);
         let is_authed = authenticate(&mut stdin_tx, &credentials, &mut read).await;
         let mut write_state = server_state.write().await;
         let publish_channel_mut = publish_channel.lock().await;
-
         // If authentication is successfull we should
         // relay that information directly to the message
         // broker channel
         if is_authed {
+            println!("Authenticated...");
             let new_server_id = Uuid::new_v4().to_string();
             //insert our new server
             write_state
@@ -109,7 +111,7 @@ pub async fn connect_and_begin_listening(
                 server_state.clone(),
                 new_server_id.clone(),
             ));
-            tokio::task::spawn(stdin_to_ws);
+            println!("Spawned and waiting...");
             route_all_incoming_messages.await;
         } else {
             send_auth_response(credentials.user_id, false, None, &publish_channel_mut).await;
@@ -232,6 +234,7 @@ pub async fn authenticate(
     if password_send.is_ok() && name_and_type_send.is_ok() && outside_name_send.is_ok() {
         if let Some(msg) = read.next().await {
             if let Ok(msg) = msg {
+                println!("{}", msg);
                 if msg.is_text() && msg.to_string() == "success" {
                     return true;
                 }

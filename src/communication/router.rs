@@ -12,6 +12,7 @@ pub async fn route_rabbit_message(
     server_state: &Arc<RwLock<MainState>>,
     publish_channel: &Arc<Mutex<lapin::Channel>>,
 ) {
+    println!("routing message...");
     match msg.category.as_str() {
         "connect_hoi" => {
             // tries to connect to the IoT server and sends the response
