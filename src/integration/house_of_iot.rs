@@ -155,14 +155,15 @@ pub async fn execute_actions_on_interval(server_state: Arc<RwLock<MainState>>, s
                 continue;
             }
         }
-        write_state
-            .action_in_progress
-            .insert(server_id.clone(), true);
+
         if let Some(server_action_queue) = write_state.action_execution_queue.get_mut(&server_id) {
             //get the most recent queued action and execute
             let action_data_res = server_action_queue.remove();
             if let Ok(action_data) = action_data_res {
                 drop(server_action_queue);
+                write_state
+                    .action_in_progress
+                    .insert(server_id.clone(), true);
                 if let Some(tx) = write_state.server_connections.get_mut(&server_id) {
                     execute_action(tx, action_data).await;
                 }
@@ -183,6 +184,7 @@ pub async fn execute_action(tx: &mut UnboundedSender<Message>, action_data: HOIA
 
 async fn request_passive_data_on_interval(server_state: Arc<RwLock<MainState>>, server_id: String) {
     loop {
+        println!("requesting passive data");
         sleep(Duration::from_secs(1)).await;
         let mut write_state = server_state.write().await;
 
@@ -203,7 +205,6 @@ async fn request_passive_data_on_interval(server_state: Arc<RwLock<MainState>>, 
                 continue;
             }
         }
-
         if let Some(tx) = write_state.server_connections.get_mut(&server_id) {
             let send_res = tx.unbounded_send(Message::Text("passive_data".to_owned()));
             //set the in progress flag
@@ -271,6 +272,7 @@ async fn route_message(
     if let Ok(response_from_server) = serde_json::from_str(&msg) {
         let actual_response: Value = response_from_server;
         let mut write_state = server_state.write().await;
+        println!("{}", msg);
         // If an action that was requested requires admin authentication
         // we should provide such authentication.
         //
@@ -296,6 +298,7 @@ async fn route_message(
         if actual_response["bots"] != Value::Null {
             // we convert here to confirm we are getting the correct data from the iot server
             // before passing it along to the main general server
+            clear_old_in_progress(&mut write_state, server_id.clone());
             if let Ok(data) = serde_json::from_value(actual_response) {
                 let data: Vec<HOIBasicPassiveSingle> = data;
                 let response = GeneralMessage {
@@ -317,6 +320,7 @@ async fn route_message(
             && actual_response["action"] != Value::Null
             && actual_response["status"] != Value::Null
         {
+            clear_old_in_progress(&mut write_state, server_id.clone());
             let response = GeneralMessage {
                 category: "action_response".to_owned(),
                 data: msg,
@@ -329,14 +333,20 @@ async fn route_message(
             )
             .await
             .unwrap_or_default();
+
             return;
         }
-
-        // These must be false since neither can be true at the same time
-        // and after every response then each passive data/action cycle is over
-        write_state
-            .action_in_progress
-            .insert(server_id.clone(), false);
-        write_state.passive_in_progress.insert(server_id, false);
     }
+}
+/// Used to set the in-progess flags to false, to allow the next action/passive data request
+/// to be executed, since only one can happen at a time.
+/// These must be false since neither can be true at the same time
+/// and after every response(from the iot server) then each passive data/action cycle is over.
+///
+/// You can read more about how we manage action/passive data requests in the docs.
+pub fn clear_old_in_progress(write_state: &mut MainState, server_id: String) {
+    write_state
+        .action_in_progress
+        .insert(server_id.clone(), false);
+    write_state.passive_in_progress.insert(server_id, false);
 }
