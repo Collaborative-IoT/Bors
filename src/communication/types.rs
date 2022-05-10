@@ -20,11 +20,6 @@ pub struct AuthResponse {
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct DisconnectMsg {
-    pub server_id: String,
-}
-
-#[derive(Deserialize, Serialize)]
 pub struct GeneralMessage {
     pub category: String,
     pub data: String,
