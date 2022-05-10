@@ -169,6 +169,11 @@ pub async fn execute_actions_on_interval(server_state: Arc<RwLock<MainState>>, s
                 }
             }
         }
+        //if we don't have a server queue, we don't have this server
+        //running anymore so we can just stop this task.
+        else {
+            return;
+        }
     }
 }
 
@@ -214,7 +219,10 @@ async fn request_passive_data_on_interval(server_state: Arc<RwLock<MainState>>, 
             if send_res.is_err() {
                 println!("issue sending for passive data");
             }
-        } else {
+        }
+        // if we don't have a sending channel, we don't have this server
+        //running anymore so we can just stop this task.
+        else {
             return;
         }
 
