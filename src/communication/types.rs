@@ -49,3 +49,8 @@ pub struct HOIActionData {
     pub bot_name: String,
     pub action: String,
 }
+
+#[derive(Deserialize, Serialize, Clone)]
+pub struct Disconnected {
+    pub external_id: String,
+}

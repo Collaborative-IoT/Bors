@@ -3,7 +3,7 @@ use std::sync::Arc;
 use futures::lock::Mutex;
 use tokio::sync::RwLock;
 
-use crate::{integration, state::state_types::MainState};
+use crate::{communication::rabbit, integration, state::state_types::MainState};
 
 use super::types::GeneralMessage;
 
@@ -28,6 +28,7 @@ pub async fn route_rabbit_message(
         }
         "disconnect_hoi" => {
             let mut write_state = server_state.write().await;
+            let mut channel = publish_channel.lock().await;
             // clean up iot server from state
             // which will automatically stop each
             // task associated with the iot server
@@ -37,6 +38,15 @@ pub async fn route_rabbit_message(
             write_state.server_connections.remove(&msg.server_id);
             write_state.server_credentials.remove(&msg.server_id);
             write_state.action_execution_queue.remove(&msg.server_id);
+            let msg = GeneralMessage {
+                category: "disconnected".to_owned(),
+                data: String::new(),
+                server_id: msg.server_id,
+            };
+
+            rabbit::publish_message(&mut channel, serde_json::to_string(&msg).unwrap())
+                .await
+                .unwrap_or_default();
         }
         "action_hoi" => {
             if let Ok(action_data) = serde_json::from_str(&msg.data) {
