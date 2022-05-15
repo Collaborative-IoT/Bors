@@ -307,20 +307,18 @@ async fn route_message(
             // we convert here to confirm we are getting the correct data from the iot server
             // before passing it along to the main general server
             clear_old_in_progress(&mut write_state, server_id.clone());
-            if let Ok(data) = serde_json::from_value(actual_response) {
-                let data: Vec<HOIBasicPassiveSingle> = data;
-                let response = GeneralMessage {
-                    category: "passive_data".to_owned(),
-                    data: serde_json::to_string(&data).unwrap(),
-                    server_id,
-                };
-                rabbit::publish_message(
-                    &publish_channel_mut,
-                    serde_json::to_string(&response).unwrap(),
-                )
-                .await
-                .unwrap_or_default();
-            }
+            let response = GeneralMessage {
+                category: "passive_data".to_owned(),
+                data: msg,
+                server_id,
+            };
+            rabbit::publish_message(
+                &publish_channel_mut,
+                serde_json::to_string(&response).unwrap(),
+            )
+            .await
+            .unwrap_or_default();
+
             return;
         }
         // If this is a response for an action execution
