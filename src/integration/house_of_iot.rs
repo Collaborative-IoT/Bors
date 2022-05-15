@@ -11,9 +11,7 @@
 //! You can use this example together with the `server` example.
 
 use crate::communication::rabbit;
-use crate::communication::types::{
-    AuthResponse, GeneralMessage, HOIActionData, HOIBasicPassiveSingle,
-};
+use crate::communication::types::{AuthResponse, GeneralMessage, HOIActionData};
 use crate::{communication::types::HouseOfIoTCredentials, state::state_types::MainState};
 use futures::lock::Mutex;
 use futures_channel::mpsc::UnboundedSender;
@@ -81,6 +79,7 @@ pub async fn connect_and_begin_listening(
                 true,
                 Some(new_server_id.clone()),
                 &publish_channel_mut,
+                Some(credentials.outside_name),
             )
             .await;
 
@@ -114,7 +113,7 @@ pub async fn connect_and_begin_listening(
             println!("Spawned and waiting...");
             route_all_incoming_messages.await;
         } else {
-            send_auth_response(credentials.user_id, false, None, &publish_channel_mut).await;
+            send_auth_response(credentials.user_id, false, None, &publish_channel_mut, None).await;
         }
     }
 }
@@ -258,11 +257,13 @@ async fn send_auth_response(
     passed: bool,
     server_id: Option<String>,
     channel: &Channel,
+    outside_name: Option<String>,
 ) {
     let auth_response = AuthResponse {
         user_id,
         passed_auth: passed,
         server_id: server_id,
+        outside_name,
     };
     rabbit::publish_message(channel, serde_json::to_string(&auth_response).unwrap())
         .await
@@ -280,7 +281,7 @@ async fn route_message(
     if let Ok(response_from_server) = serde_json::from_str(&msg) {
         let actual_response: Value = response_from_server;
         let mut write_state = server_state.write().await;
-        println!("{}", msg);
+
         // If an action that was requested requires admin authentication
         // we should provide such authentication.
         //

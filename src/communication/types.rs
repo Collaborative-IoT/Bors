@@ -17,6 +17,7 @@ pub struct AuthResponse {
     pub user_id: i32,
     pub passed_auth: bool,
     pub server_id: Option<String>,
+    pub outside_name: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
