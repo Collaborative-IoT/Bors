@@ -46,7 +46,6 @@ pub struct HOIBasicPassiveSingle {
 }
 #[derive(Deserialize, Serialize, Clone)]
 pub struct HOIActionData {
-    pub server_id: String,
     pub bot_name: String,
     pub action: String,
 }

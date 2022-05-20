@@ -123,12 +123,10 @@ pub async fn connect_and_begin_listening(
 pub async fn queue_up_action_execution(
     server_state: &Arc<RwLock<MainState>>,
     action_data: HOIActionData,
+    server_id: String,
 ) {
     let mut write_state = server_state.write().await;
-    if let Some(data) = write_state
-        .action_execution_queue
-        .get_mut(&action_data.server_id)
-    {
+    if let Some(data) = write_state.action_execution_queue.get_mut(&server_id) {
         // Note: We need to account for circular removal
         // when we add an item to the queue, another item
         // could be removed "in the case of a circular buffer"
