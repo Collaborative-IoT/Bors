@@ -13,17 +13,19 @@ pub async fn route_rabbit_message(
     publish_channel: &Arc<Mutex<lapin::Channel>>,
 ) {
     println!("routing message...");
+    println!("{:?}", msg);
     match msg.category.as_str() {
         "connect_hoi" => {
             // tries to connect to the IoT server and sends the response
             // to the main server via rabbitmq
             if let Ok(credentials) = serde_json::from_str(&msg.data) {
-                integration::house_of_iot::connect_and_begin_listening(
+                println!("entering");
+                tokio::task::spawn(integration::house_of_iot::connect_and_begin_listening(
                     credentials,
-                    server_state,
-                    publish_channel,
-                )
-                .await;
+                    server_state.clone(),
+                    publish_channel.clone(),
+                ));
+                println!("exiting");
             }
         }
         "disconnect_hoi" => {
@@ -50,12 +52,12 @@ pub async fn route_rabbit_message(
         }
         "action_hoi" => {
             if let Ok(action_data) = serde_json::from_str(&msg.data) {
-                integration::house_of_iot::queue_up_action_execution(
-                    server_state,
+                println!("adding action:{:?}", action_data);
+                tokio::task::spawn(integration::house_of_iot::queue_up_action_execution(
+                    server_state.clone(),
                     action_data,
                     msg.server_id,
-                )
-                .await;
+                ));
             }
         }
         _ => {}

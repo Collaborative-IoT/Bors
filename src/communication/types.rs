@@ -20,7 +20,7 @@ pub struct AuthResponse {
     pub outside_name: Option<String>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct GeneralMessage {
     pub category: String,
     pub data: String,
@@ -44,7 +44,7 @@ pub struct HOIBasicPassiveSingle {
     pub device_name: String,
     pub device_type: String,
 }
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct HOIActionData {
     pub bot_name: String,
     pub action: String,

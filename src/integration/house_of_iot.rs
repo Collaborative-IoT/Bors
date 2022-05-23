@@ -34,8 +34,8 @@ use uuid::Uuid;
 
 pub async fn connect_and_begin_listening(
     credentials: HouseOfIoTCredentials,
-    server_state: &Arc<RwLock<MainState>>,
-    publish_channel: &Arc<Mutex<lapin::Channel>>,
+    server_state: Arc<RwLock<MainState>>,
+    publish_channel: Arc<Mutex<lapin::Channel>>,
 ) {
     let url_res = url::Url::parse(&credentials.connection_str);
     println!("Connecting...");
@@ -121,7 +121,7 @@ pub async fn connect_and_begin_listening(
 /// We need to queue up every action instead
 /// of executing it directly due to the s
 pub async fn queue_up_action_execution(
-    server_state: &Arc<RwLock<MainState>>,
+    server_state: Arc<RwLock<MainState>>,
     action_data: HOIActionData,
     server_id: String,
 ) {
@@ -136,7 +136,7 @@ pub async fn queue_up_action_execution(
 
 pub async fn execute_actions_on_interval(server_state: Arc<RwLock<MainState>>, server_id: String) {
     loop {
-        sleep(Duration::from_millis(200)).await;
+        sleep(Duration::from_millis(1700)).await;
         let mut write_state = server_state.write().await;
         // Only request action if nothing is blocking us from requesting
         // Things that could block us from requesting:
@@ -152,7 +152,6 @@ pub async fn execute_actions_on_interval(server_state: Arc<RwLock<MainState>>, s
                 continue;
             }
         }
-
         if let Some(server_action_queue) = write_state.action_execution_queue.get_mut(&server_id) {
             //get the most recent queued action and execute
             let action_data_res = server_action_queue.remove();
@@ -169,6 +168,7 @@ pub async fn execute_actions_on_interval(server_state: Arc<RwLock<MainState>>, s
         //if we don't have a server queue, we don't have this server
         //running anymore so we can just stop this task.
         else {
+            println!("no longer have server queue");
             return;
         }
     }
@@ -186,8 +186,7 @@ pub async fn execute_action(tx: &mut UnboundedSender<Message>, action_data: HOIA
 
 async fn request_passive_data_on_interval(server_state: Arc<RwLock<MainState>>, server_id: String) {
     loop {
-        println!("requesting passive data");
-        sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(5)).await;
         let mut write_state = server_state.write().await;
 
         // Only request passive data if nothing is blocking us from requesting
