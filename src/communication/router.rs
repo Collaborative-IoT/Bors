@@ -19,13 +19,11 @@ pub async fn route_rabbit_message(
             // tries to connect to the IoT server and sends the response
             // to the main server via rabbitmq
             if let Ok(credentials) = serde_json::from_str(&msg.data) {
-                println!("entering");
                 tokio::task::spawn(integration::house_of_iot::connect_and_begin_listening(
                     credentials,
                     server_state.clone(),
                     publish_channel.clone(),
                 ));
-                println!("exiting");
             }
         }
         "disconnect_hoi" => {
@@ -52,7 +50,6 @@ pub async fn route_rabbit_message(
         }
         "action_hoi" => {
             if let Ok(action_data) = serde_json::from_str(&msg.data) {
-                println!("adding action:{:?}", action_data);
                 tokio::task::spawn(integration::house_of_iot::queue_up_action_execution(
                     server_state.clone(),
                     action_data,

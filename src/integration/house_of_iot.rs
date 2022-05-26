@@ -286,7 +286,9 @@ async fn route_message(
         //super admin and one for regular admin, but this integration
         //is only for doing things that requires regular admin auth.
         if actual_response["status"] != Value::Null
-            && actual_response["status"].to_string() == "needs-admin-auth"
+            && actual_response["status"]
+                .to_string()
+                .contains("needs-admin-auth")
         {
             let mut creds = None;
             if let Some(cred) = write_state.server_credentials.get(&server_id) {
@@ -319,6 +321,7 @@ async fn route_message(
 
             return;
         }
+        println!("data passed:{}", msg);
         // If this is a response for an action execution
         if actual_response["bot_name"] != Value::Null
             && actual_response["action"] != Value::Null
