@@ -321,7 +321,6 @@ async fn route_message(
 
             return;
         }
-        println!("data passed:{}", msg);
         // If this is a response for an action execution
         if actual_response["bot_name"] != Value::Null
             && actual_response["action"] != Value::Null

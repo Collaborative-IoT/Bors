@@ -54,3 +54,9 @@ pub struct HOIActionData {
 pub struct Disconnected {
     pub external_id: String,
 }
+
+#[derive(Deserialize, Serialize, Clone)]
+pub struct HOIRelationReq {
+    pub category: String,
+    pub data: String,
+}
