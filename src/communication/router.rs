@@ -65,6 +65,8 @@ pub async fn route_rabbit_message(
             let write_state = server_state.write().await;
             let mut channel = publish_channel.lock().await;
             if let Some(tx) = write_state.server_connections.get(&msg.server_id) {
+                tx.unbounded_send(Message::Text("external_controller_request".to_string()))
+                    .unwrap_or_default();
                 tx.unbounded_send(Message::Text(
                     serde_json::to_string(&HOIRelationReq {
                         category: msg.category.clone(),
