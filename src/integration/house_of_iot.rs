@@ -1,15 +1,3 @@
-//! A simple example of hooking up stdin/stdout to a WebSocket stream.
-//!
-//! This example will connect to a server specified in the argument list and
-//! then forward all data read on stdin to the server, printing out all data
-//! received on stdout.
-//!
-//! Note that this is not currently optimized for performance, especially around
-//! buffer management. Rather it's intended to show an example of working with a
-//! client.
-//!
-//! You can use this example together with the `server` example.
-
 use crate::communication::rabbit;
 use crate::communication::types::{AuthResponse, GeneralMessage, HOIActionData};
 use crate::{communication::types::HouseOfIoTCredentials, state::state_types::MainState};
